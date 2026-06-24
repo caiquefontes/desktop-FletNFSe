@@ -14,9 +14,27 @@ from sqlite3 import IntegrityError
 from models import(
     db, CadastroUF, CadastroMunicipio, CadastroTributacaoNacional, CadastroNBS, ServicoCadastro,
     ParticipanteTipo, Participante, ServicoAliquota, CadastroVersaoAplicacao, NfseChave,
-    NfseNfse, NfseValorTotal, NfseDpsDps
+    NfseNfse, NfseValorTotal, NfseDpsDps, NfseDpsTrib, NfseDpsSubst, NfseDpsInfcompl,
 )
 from apps.pwNFSe.utils import xml_para_dit_caminhos
+
+
+def _nfse_extrair_data_hora(dh_proc:str):
+    dh_proc = dh_proc.split('T')
+
+    dt_list = dh_proc[0].split('-')
+    ano = int(dt_list[0])
+    mes = int(dt_list[1])
+    dia = int(dt_list[2])
+    dta_emissao = date(ano, mes, dia)
+
+    hr_list = dh_proc[1].split('-')[0].split(':')
+    hora = int(hr_list[0])
+    minuto = int(hr_list[1])
+    segundo = int(hr_list[2])
+    hr_emissao = time(hour=hora, minute=minuto, second=segundo)
+
+    return dta_emissao, hr_emissao
 
 
 def _extrair_valor(dicionario_caminhos, caminho, tipo=str, default=None):
@@ -413,24 +431,6 @@ def criar_nfse_chave(dados_xml:dict):
          )
 
 
-def _nfse_extrair_data_hora(dh_proc:str):
-    dh_proc = dh_proc.split('T')
-
-    dt_list = dh_proc[0].split('-')
-    ano = int(dt_list[0])
-    mes = int(dt_list[1])
-    dia = int(dt_list[2])
-    dta_emissao = date(ano, mes, dia)
-
-    hr_list = dh_proc[1].split('-')[0].split(':')
-    hora = int(hr_list[0])
-    minuto = int(hr_list[1])
-    segundo = int(hr_list[2])
-    hr_emissao = time(hour=hora, minute=minuto, second=segundo)
-
-    return dta_emissao, hr_emissao
-
-
 def criar_nfse_nfse(dados_xml:dict):
     # ----------------------------------------------------------------------------------------------------------------
     nr_nfse = _extrair_valor(dados_xml, "NFSe/infNFSe/nNFSe", int)
@@ -547,7 +547,7 @@ def criar_nfse_dps_dps(dados_xml:dict):
             (model_alq.local_prest==mun_id['prestacao']) & 
             (model_alq.local_incid==mun_id['incidencia']) &
             (model_alq.servico_id==servico_id)  
-        ).id
+        )
     serv_aliq_id = serv_aliq.id 
     # ----------------------------------------------------------------------------------------------------------------
     cnpj_prest = _extrair_valor(dados_xml, "NFSe/infNFSe/DPS/infDPS/prest/CNPJ", str)
@@ -562,13 +562,17 @@ def criar_nfse_dps_dps(dados_xml:dict):
         tipo_id = ParticipanteTipo.get_or_none(ParticipanteTipo.tipo == tipos[idx])  
         md_cnpj = model_cnpj.get_or_none(
             (model_cnpj.tipo == tipo_id.id) &
-            (model_cnpj.cnpj == dic_cnpj['cnpj'])
+            (model_cnpj.cnpj == dic_cnpj[idx])
         )
-        dic_id[tipo]= md_cnpj.id
 
-    prestador_id = dic_id.get('PRESTADOR', 0)
-    tomador_id  = dic_id.get('TOMADOR', 0) 
-    intermediario_id  = dic_id.get('INTERMEDIARIO', 0) 
+        if md_cnpj is not None:
+            dic_id[tipo] = md_cnpj.id
+        else:
+            dic_id[tipo] = None
+
+    prestador_id = dic_id.get('PRESTADOR', None)
+    tomador_id  = dic_id.get('TOMADOR', None) 
+    intermediario_id  = dic_id.get('INTERMEDIARIO', None) 
     
     # ----------------------------------------------------------------------------------------------------------------
     main_path = "NFSe/infNFSe/DPS/infDPS/"
@@ -577,21 +581,21 @@ def criar_nfse_dps_dps(dados_xml:dict):
     dta, hr = _nfse_extrair_data_hora(dt_hr_emi)
     dt_comp_str = _extrair_valor(dados_xml, main_path+"dCompet", str).split('-')
 
-    dps_id = _extrair_valor(dados_xml, main_path+"id", str)
+    dps_num_id = _extrair_valor(dados_xml,"NFSe/infNFSe/DPS/infDPS@Id", str)
     tp_amb = _extrair_valor(dados_xml, main_path+"tpAmb", str)
     dt_emi = dta
     hr_emi  = hr
     vr_apli = _extrair_valor(dados_xml, main_path+"verAplic", str)
     cd_serie = _extrair_valor(dados_xml, main_path+"serie", int)
     nr_dps = _extrair_valor(dados_xml, main_path+"nDPS", int)
-    dt_comp = date(dt_comp_str[2], dt_comp_str[1], dt_comp_str[0])
+    dt_comp = date(int(dt_comp_str[0]), int(dt_comp_str[1]), int(dt_comp_str[2]))
     tp_emit = _extrair_valor(dados_xml, main_path+"tpEmit", int)
 
-    md_dps = DPS.get_or_none(DPS.dps_id == dps_id)
+    md_dps = DPS.get_or_none(DPS.dps_id == dps_num_id)
     if md_dps is None:
-         md_dps.create(
+         DPS.create(
             nfse_id = nfse_id,
-            dps_id = dps_id,
+            dps_id = dps_num_id,
             tp_amb = tp_amb,
             dt_emi = dt_emi,
             hr_emi  = hr_emi,
@@ -606,33 +610,135 @@ def criar_nfse_dps_dps(dados_xml:dict):
             intermediario_id = intermediario_id,
             serv_aliq = serv_aliq_id,
             # Valores
-            vl_recebimento = _extrair_valor(dados_xml, main_path+"valores/vServPrest/vReceb", float),
-            vl_servico = _extrair_valor(dados_xml, main_path+"valores/vServPrest/vServ", float), 
-            vl_desc_incondicional = _extrair_valor(dados_xml, main_path+"valores/vDescCondIncond/vDescIncond", float),
-            vl_desc_condicional = _extrair_valor(dados_xml, main_path+"valores/vDescCondIncond/vDescCond", float),
-            vl_aliq_ded_red = _extrair_valor(dados_xml, main_path+"valores/vDedRed/pDR", float), 
-            vl_ded_red = _extrair_valor(dados_xml, main_path+"valores/vDedRed/vDR", float), 
+            vl_recebimento = _extrair_valor(dados_xml, main_path+"valores/vServPrest/vReceb", float, default=0),
+            vl_servico = _extrair_valor(dados_xml, main_path+"valores/vServPrest/vServ", float, default=0), 
+            vl_desc_incondicional = _extrair_valor(dados_xml, main_path+"valores/vDescCondIncond/vDescIncond", float, default=0),
+            vl_desc_condicional = _extrair_valor(dados_xml, main_path+"valores/vDescCondIncond/vDescCond", float, default=0),
+            vl_aliq_ded_red = _extrair_valor(dados_xml, main_path+"valores/vDedRed/pDR", float, default=0), 
+            vl_ded_red = _extrair_valor(dados_xml, main_path+"valores/vDedRed/vDR", float, default=0)
         )
 
 
 def criar_nfse_dps_trib(dados_xml:dict):
-    ...
+    # ----------------------------------------------------------------------------------------------------------------
+    dps_num_id = _extrair_valor(dados_xml,"NFSe/infNFSe/DPS/infDPS@Id", str)
+    dps = NfseDpsDps.get_or_none(NfseDpsDps.dps_id == dps_num_id)
+    dps_id = 0
+    if dps is not None: dps_id = dps.id
+    if dps_id == 0:
+         raise('Error: dps nao localizado!')
+    # ----------------------------------------------------------------------------------------------------------------
+    # Tributacao Municipal
+    path_trib_mun = 'NFSe/infNFSe/DPS/infDPS/valores/trib/tribMun/'
+    cd_trib_iss_qn = _extrair_valor(dados_xml, path_trib_mun+'tribISSQN', int) # tribISSQN
+    cd_PaisResult = _extrair_valor(dados_xml, path_trib_mun+'cPaisResult', int, default=0) # cPaisResult
+
+    # Tributacao Municipal - Beneficio Municipal
+    path_trib_mun_bm = 'NFSe/infNFSe/DPS/infDPS/valores/trib/tribMun/BM/'
+    cd_nbm =  _extrair_valor(dados_xml, path_trib_mun_bm+'nBM', int, default=0) #nBM
+    vl_red_bc_bm =  _extrair_valor(dados_xml, path_trib_mun_bm+'vRedBCBM', float, default=0) #vRedBCBM
+    vp_red_bc_bm =  _extrair_valor(dados_xml, path_trib_mun_bm+'pRedBCBM', float, default=0) #pRedBCBM
+
+    # Tributacao Federal (piscofins)
+    path_trib_fed = 'NFSe/infNFSe/DPS/infDPS/valores/trib/tribFed/piscofins/'
+    cd_cst =  _extrair_valor(dados_xml, path_trib_fed+'CST', int, default=0) #CST
+    vl_bc_pis_cofins =  _extrair_valor(dados_xml, path_trib_fed+'vBCPisCofins', float, default=0) #vBCPisCofins
+    vp_aliq_pis =  _extrair_valor(dados_xml, path_trib_fed+'pAliqPis', float, default=0) #pAliqPis
+    vp_aliq_cofins =  _extrair_valor(dados_xml, path_trib_fed+'pAliqCofins', float, default=0) #pAliqCofins
+    vl_pis =  _extrair_valor(dados_xml, path_trib_fed+'vPis', float, default=0) #vPis
+    vl_confins =  _extrair_valor(dados_xml, path_trib_fed+'vCofins', float, default=0) #vCofins
+    tp_ret_pis_cofins  =  _extrair_valor(dados_xml, path_trib_fed+'tpRetPisCofins', int, default=0) # tpRetPisCofins
+
+    # Tributacao Retenção
+    path_trib_ret = 'NFSe/infNFSe/DPS/infDPS/valores/trib/tribFed/'
+    vl_ret_cp =  _extrair_valor(dados_xml, path_trib_fed+'vRetCP', float, default=0) #vRetCP
+    vl_ret_irrf =  _extrair_valor(dados_xml, path_trib_fed+'vRetIRRF', float, default=0) #vRetIRRF
+    vl_ret_csll =  _extrair_valor(dados_xml, path_trib_fed+'vRetCSLL', float, default=0) #vRetCSLL
+
+    md_trb = NfseDpsTrib.get_or_none(NfseDpsTrib.dps_id == dps_id)
+    if md_trb is None:
+        NfseDpsTrib.create(
+            dps_id = dps_id,
+            cd_trib_iss_qn = cd_trib_iss_qn,
+            cd_PaisResult = cd_PaisResult,
+            cd_nbm = cd_nbm,
+            vl_red_bc_bm = vl_red_bc_bm,
+            vp_red_bc_bm = vp_red_bc_bm,
+            cd_cst = cd_cst,
+            vl_bc_pis_cofins = vl_bc_pis_cofins,
+            vp_aliq_pis = vp_aliq_pis,
+            vp_aliq_cofins = vp_aliq_cofins,
+            vl_pis = vl_pis,
+            vl_confins = vl_confins,
+            tp_ret_pis_cofins = tp_ret_pis_cofins,
+            vl_ret_cp = vl_ret_cp,
+            vl_ret_irrf = vl_ret_irrf,
+            vl_ret_csll = vl_ret_csll,
+        )
 
 
 def criar_nfse_dps_subst(dados_xml:dict):
-    ...
+    # ----------------------------------------------------------------------------------------------------------------
+    dps_num_id = _extrair_valor(dados_xml,"NFSe/infNFSe/DPS/infDPS@Id", str)
+    dps = NfseDpsDps.get_or_none(NfseDpsDps.dps_id == dps_num_id)
+    dps_id = 0
+    if dps is not None: dps_id = dps.id
+    if dps_id == 0:
+         raise('Error: dps nao localizado!')
+    # ----------------------------------------------------------------------------------------------------------------
+    path = 'NFSe/infNFSe/DPS/infDPS/subst/'
+    ch_nfse_subs = _extrair_valor(dados_xml, path+'chSubstda', str, default=None)
+    if ch_nfse_subs is not None:
+        cd_motivo = _extrair_valor(dados_xml, path+'cMotivo', int)
+        ds_motivo = _extrair_valor(dados_xml, path+'xMotivo', str)
+
+        md = NfseDpsSubst.get_or_none(
+            NfseDpsSubst.dps_id==dps_id &
+            NfseDpsSubst.cd_motivo==cd_motivo
+        )
+
+        if md is None:
+            NfseDpsSubst.create(
+                dps_id = dps_id,
+                ch_nfse_subs = ch_nfse_subs,
+                cd_motivo = cd_motivo,
+                ds_motivo = ds_motivo,
+            )
 
 
 def criar_nfse_dps_infcompl(dados_xml:dict):
-    ...
+    # ----------------------------------------------------------------------------------------------------------------
+    dps_num_id = _extrair_valor(dados_xml,"NFSe/infNFSe/DPS/infDPS@Id", str)
+    dps = NfseDpsDps.get_or_none(NfseDpsDps.dps_id == dps_num_id)
+    dps_id = 0
+    if dps is not None: dps_id = dps.id
+    if dps_id == 0:
+         raise('Error: dps nao localizado!')
+    # ----------------------------------------------------------------------------------------------------------------
+    path = 'NFSe/infNFSe/DPS/infDPS/serv/infoCompl/'
+    id_doc_tec = _extrair_valor(dados_xml, path+'idDocTec', str, default=None)
+    if id_doc_tec is not None:
+        doc_ref = _extrair_valor(dados_xml, path+'docRef', int)
+        ds_inf_comp = _extrair_valor(dados_xml, path+'xInfComp', str)
 
+        md = NfseDpsInfcompl.get_or_none(
+            NfseDpsInfcompl.dps_id==dps_id &
+            NfseDpsInfcompl.id_doc_tec==id_doc_tec
+        )
 
+        if md is None:
+            NfseDpsInfcompl.create(
+                dps_id = dps_id,
+                id_doc_tec = id_doc_tec,
+                doc_ref = doc_ref,
+                ds_inf_comp = ds_inf_comp,
+            )    
 
 if __name__ == '__main__':
     caminho_arquivo = r"C:\Users\cfontes\Documents\PROJETOS_PYTHON\NFSeFlet\files\nfse_download\NFS-e Gerada\xml\53001081240281347000174000000028564726051777763150.xml"
     dados_xml = xml_para_dit_caminhos(caminho_arquivo)
     # for idx, xml in dados_xml.items():
-    #      print(idx)
+    #     print(idx)
     print("=" * 50)
     r0 = criar_ufs()
     r1 = criar_municipios(dados_xml)
@@ -647,3 +753,7 @@ if __name__ == '__main__':
     r9 = criar_nfse_nfse(dados_xml)
     r10 = criar_nfse_nfse(dados_xml)
     r11 = criar_nfse_valortotal(dados_xml)
+    r12 = criar_nfse_dps_dps(dados_xml)
+    r13 = criar_nfse_dps_trib(dados_xml)
+    r14 = criar_nfse_dps_subst(dados_xml)
+    r15 = criar_nfse_dps_infcompl(dados_xml)

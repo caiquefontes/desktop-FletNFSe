@@ -195,9 +195,9 @@ class NfseDpsDps(BaseModel):
     dt_comp = DateField(null=True)
     tp_emit = IntegerField(null=True) # Emitente da DPS: 1 - Prestador; 2 - Tomador; 3 - Intermediário;
     loc_emi_id = ForeignKeyField(CadastroMunicipio, null=True, on_delete='CASCADE', backref='dps_local_emis')
-    prestador_id = ForeignKeyField(Participante, null=False, on_delete='CASCADE', backref='prestadores')
-    tomador_id = ForeignKeyField(Participante, null=False, on_delete='CASCADE', backref='tomadores')
-    intermediario_id = ForeignKeyField(Participante, null=False, on_delete='CASCADE', backref='intermediarios')
+    prestador_id = ForeignKeyField(Participante, null=True, on_delete='CASCADE', backref='prestadores')
+    tomador_id = ForeignKeyField(Participante, null=True, on_delete='CASCADE', backref='tomadores')
+    intermediario_id = ForeignKeyField(Participante, null=True, on_delete='CASCADE', backref='intermediarios')
     serv_aliq = ForeignKeyField(ServicoAliquota, null=False, on_delete='CASCADE',backref='servicos')
 
     # -----  Valores  -----
@@ -217,24 +217,26 @@ class NfseDpsTrib(BaseModel):
     dps_id = ForeignKeyField(NfseDpsDps, null=False, on_delete='CASCADE', backref='dps_ids')
 
     # Tributacao Municipal
-    cd_trib_iss_qn = IntegerField() # NFSe/infNFSe/DPS/infDPS/valores/trib/tribMun/
-    cd_PaisResult = IntegerField() 
-    cd_nbm = IntegerField() 
-    vl_red_bc_bm = DecimalField(max_digits=15, decimal_places=2) 
-    vp_red_bc_bm = DecimalField(max_digits=15, decimal_places=2) 
+    # NFSe/infNFSe/DPS/infDPS/valores/trib/tribMun/
+    cd_trib_iss_qn = IntegerField() # tribISSQN
+    cd_PaisResult = IntegerField() # cPaisResult
+    # NFSe/infNFSe/DPS/infDPS/valores/trib/tribMun/BM
+    cd_nbm = IntegerField() #nBM
+    vl_red_bc_bm = DecimalField(max_digits=15, decimal_places=2) #vRedBCBM
+    vp_red_bc_bm = DecimalField(max_digits=15, decimal_places=2) #pRedBCBM
 
     # Tributacao Federal (piscofins)
-    cd_cst = IntegerField() 
-    vl_bc_pis_cofins = DecimalField(max_digits=15, decimal_places=2) 
-    vp_aliq_pis = DecimalField(max_digits=15, decimal_places=2) 
-    vp_aliq_cofins = DecimalField(max_digits=15, decimal_places=2) 
-    vl_pis = DecimalField(max_digits=15, decimal_places=2) 
-    vl_confins = DecimalField(max_digits=15, decimal_places=2) 
-    tp_ret_pis_cofins  = IntegerField() 
-    vl_ret_cp = DecimalField(max_digits=15, decimal_places=2) 
-    vl_ret_irrf = DecimalField(max_digits=15, decimal_places=2) 
-    vl_ret_csll = DecimalField(max_digits=15, decimal_places=2) 
-
+    # NFSe/infNFSe/DPS/infDPS/valores/trib/tribFed/
+    cd_cst = IntegerField() #CST
+    vl_bc_pis_cofins = DecimalField(max_digits=15, decimal_places=2) #vBCPisCofins
+    vp_aliq_pis = DecimalField(max_digits=15, decimal_places=2) #pAliqPis
+    vp_aliq_cofins = DecimalField(max_digits=15, decimal_places=2) #pAliqCofins
+    vl_pis = DecimalField(max_digits=15, decimal_places=2) #vPis
+    vl_confins = DecimalField(max_digits=15, decimal_places=2) #vCofins
+    tp_ret_pis_cofins  = IntegerField() # tpRetPisCofins
+    vl_ret_cp = DecimalField(max_digits=15, decimal_places=2) #vRetCP
+    vl_ret_irrf = DecimalField(max_digits=15, decimal_places=2) #vRetIRRF
+    vl_ret_csll = DecimalField(max_digits=15, decimal_places=2) #vRetCSLL
 
     class Meta:
         table_name = 'nfse_dps_trib'
@@ -242,7 +244,7 @@ class NfseDpsTrib(BaseModel):
 
 class NfseDpsSubst(BaseModel):
     dps_id = ForeignKeyField(NfseDpsDps, null=False, on_delete='CASCADE', backref='dps_ids')
-    ch_nfse_subs = CharField(max_length=45, null=False)
+    ch_nfse_subs = CharField(max_length=45, null=True)
     cd_motivo = IntegerField()
     ds_motivo = CharField(null=True)
 
@@ -269,9 +271,8 @@ def criar_tabelas():
             # Domínios
             CadastroUF, CadastroMunicipio, ParticipanteTipo, Participante, CadastroTributacaoNacional,
             CadastroNBS, ServicoCadastro, ServicoAliquota, CadastroVersaoAplicacao, NfseChave,
-            NfseNfse, NfseValorTotal,
-            
-            ],
+            NfseNfse, NfseValorTotal, NfseDpsDps, NfseDpsTrib, NfseDpsSubst, NfseDpsInfcompl,
+        ],
             safe=True
         )
     finally:
